@@ -6,12 +6,12 @@ license = "MIT OR Apache-2.0"
 
 # Disabling `wasm-opt` makes the build faster, but the resulting wasm file is much larger.
 # Uncommented now, because it takes too much time in CI -- dependency graph should be optimized,
-# so that it doesn't take forever. In case of new release requied, comment the lines below.
+# so that it doesn't take forever. In case of new release required, comment the lines below.
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 bincode = { version = "2", features = ["serde"] }
