@@ -32,13 +32,19 @@ yarn dev
 ```ts
 import { createVerifier } from "@matterlabs/ethproofs-airbender-verifier";
 
-const verifier = await createVerifier();
+const verifier = await createVerifier({
+  verificationKey
+});
 const proof = verifier.deserializeProofBytes(proofBytes);
 const result = verifier.verifyProof(proof);
 
 if (!result.success) {
-  console.error(result.errors);
+  console.error(result.error);
 }
 ```
 
-You can override the default `setup.bin` and `layouts.bin` in `createVerifier({ setupBin, layoutBin })`.
+`createVerifier()` requires explicit verification keys. New callers should pass
+a single-file verification key via `verificationKey`. Existing 80-bit split
+setup/layout artifacts can still be passed explicitly with `setupBin` /
+`layoutBin`. Versioned proof payloads must match the verification key's declared
+security level; legacy payloads are treated as 80-bit proofs.

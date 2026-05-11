@@ -1,9 +1,7 @@
 import init, {
   deserialize_proof_bytes,
-  init_defaults,
-  init_with,
   InitOutput,
-  verify_proof
+  WasmVerifier
 } from "../wasm/pkg/proof_verifier_wasm";
 
 /**
@@ -21,18 +19,32 @@ export type VerificationResult = {
   error: string | null;
 };
 
+export type VerificationKey = Uint8Array;
+
+type SingleFileVerifierOptions = {
+  /** Single-file verification key. Its embedded security level must match verified proofs. */
+  verificationKey: VerificationKey;
+  setupBin?: never;
+  layoutBin?: never;
+};
+
+type LegacySingleVerifierOptions = {
+  /** Legacy 80-bit setup data for existing split-key deployments. */
+  setupBin: Uint8Array;
+  /** Legacy 80-bit layout data for existing split-key deployments. */
+  layoutBin: Uint8Array;
+  verificationKey?: never;
+};
+
 /**
- * Optional verifier configuration for custom setup and layout for circuits.
+ * Verifier configuration with explicit verification keys.
  *
  * These correspond to the precomputed verifier artifacts used by the
  * Ethereum STF ZK proof system and must match the proof's circuit version.
  */
-export type VerifierOptions = {
-  /** Binary setup data that defines the verifier's cryptographic setup. */
-  setupBin: Uint8Array;
-  /** Binary layout data that defines circuit layout metadata. */
-  layoutBin: Uint8Array;
-};
+export type VerifierOptions =
+  | SingleFileVerifierOptions
+  | LegacySingleVerifierOptions;
 
 /**
  * Verifier API for Ethereum STF ZK proofs submitted to EthProofs.
@@ -63,39 +75,58 @@ function ensureInit(): Promise<InitOutput> {
   return initPromise;
 }
 
+function resultFromWasm(result: unknown): VerificationResult {
+  const typed = result as {
+    success: boolean;
+    error: () => string | null;
+  };
+
+  return {
+    success: typed.success,
+    error: typed.error()
+  };
+}
+
 class VerifierImpl implements Verifier {
+  constructor(private readonly inner: WasmVerifier) {}
+
   deserializeProofBytes(proofBytes: Uint8Array): ProofHandle {
     return deserialize_proof_bytes(proofBytes);
   }
 
   verifyProof(handle: ProofHandle): VerificationResult {
-    const result = verify_proof(handle) as unknown as {
-      success: boolean;
-      error: () => string | null;
-    };
+    return resultFromWasm(this.inner.verifyProof(handle));
+  }
+}
 
-    return {
-      success: result.success,
-      error: result.error()
-    };
+function createWasmVerifier(options: VerifierOptions): WasmVerifier {
+  if (options.verificationKey) {
+    return WasmVerifier.fromKey(options.verificationKey);
   }
 
+  if (options.setupBin && options.layoutBin) {
+    return WasmVerifier.fromLegacyKey(options.setupBin, options.layoutBin);
+  }
+
+  throw new Error(
+    "verifier options must include a verification key or legacy setup/layout artifacts"
+  );
 }
 
 /**
  * Initializes the WASM dependency and creates a Verifier instance.
  * 
- * @param options Optional verifier configuration for custom setup and layout for circuits.
+ * @param options Verifier configuration with an explicit key or legacy artifacts.
  * @returns A Promise that resolves to a Verifier instance.
  */
-export async function createVerifier(options?: VerifierOptions): Promise<Verifier> {
+export async function createVerifier(options: VerifierOptions): Promise<Verifier> {
   await ensureInit();
 
-  if (options) {
-    init_with(options.setupBin, options.layoutBin);
-  } else {
-    init_defaults();
+  if (!options) {
+    throw new Error(
+      "verifier options must include a verification key or legacy setup/layout artifacts"
+    );
   }
 
-  return new VerifierImpl();
+  return new VerifierImpl(createWasmVerifier(options));
 }

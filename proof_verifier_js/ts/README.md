@@ -14,8 +14,9 @@ yarn add @matterlabs/ethproofs-airbender-verifier
 ```ts
 import { createVerifier } from "@matterlabs/ethproofs-airbender-verifier";
 
-// Create the verifier object
-const verifier = await createVerifier();
+const verifier = await createVerifier({
+  verificationKey
+});
 
 // Deserialize the submitted proof (without `base64` encoding; e.g. format that is used on EthProofs to store proofs)
 const handle = verifier.deserializeProofBytes(proofBytes);
@@ -27,9 +28,29 @@ if (!result.success) {
 }
 ```
 
-## Custom setup/layout
+`createVerifier()` requires explicit verification keys.
+`verifyProof(handle)` requires the proof security level to match the supplied
+verification key. Legacy proof payloads do not carry that metadata, so they are
+verified as 80-bit proofs.
 
-Use this when you need to verify proofs against a non-default circuit version.
+## Verification keys
+
+Use single-file verification keys for new integrations:
+
+```ts
+import { createVerifier } from "proof-verifier-js";
+
+const verifier = await createVerifier({
+  verificationKey
+});
+```
+
+The key must match the proof’s circuit version and security level.
+
+## Legacy setup/layout
+
+Use this only when you need to verify with existing 80-bit split setup/layout
+artifacts.
 
 ```ts
 import { createVerifier } from "proof-verifier-js";
@@ -40,8 +61,8 @@ const verifier = await createVerifier({
 });
 ```
 
-`setupBin` is the verifier setup artifact and `layoutBin` is the circuit layout metadata.
-Both must match the proof’s circuit version.
+The legacy `setupBin` / `layoutBin` pair initializes 80-bit verification only.
+Use the single-file VK format for 100-bit verification.
 
 ## License
 

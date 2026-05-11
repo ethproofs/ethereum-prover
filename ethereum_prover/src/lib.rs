@@ -8,6 +8,7 @@ use crate::{
     cache::CacheStorage,
     clients::ethproofs::EthproofsClient,
     config::{Cli, Command, EthProverConfig},
+    proof_output::ProofOutput,
     prover::{cpu_witness::CpuWitnessGenerator, gpu_prover::Prover},
     types::Mode,
 };
@@ -18,10 +19,13 @@ pub(crate) mod cache;
 pub(crate) mod clients;
 pub mod metrics;
 pub(crate) mod observability;
+pub(crate) mod proof_output;
 pub mod prover;
 pub(crate) mod tasks;
-pub(crate) mod types;
+pub mod types;
 pub(crate) mod utils;
+pub(crate) mod verification_key_format;
+pub mod verifier_artifacts;
 
 #[derive(Debug, Default)]
 pub struct Runner {}
@@ -32,6 +36,14 @@ impl Runner {
     }
 
     pub async fn run(self, cli: Cli, config: EthProverConfig) -> anyhow::Result<()> {
+        if let Command::GenerateVerifierArtifacts {
+            output_dir,
+            security,
+        } = &cli.command
+        {
+            return verifier_artifacts::generate_verifier_artifacts(output_dir, *security);
+        }
+
         let mut join_set = tokio::task::JoinSet::new();
 
         let cache_storage = CacheStorage::new(".cache").context("failed to initialize cache")?;
@@ -76,6 +88,9 @@ impl Runner {
                 ));
                 (receiver, false)
             }
+            Command::GenerateVerifierArtifacts { .. } => {
+                unreachable!("artifact generation returns before block stream initialization")
+            }
         };
 
         let mut mode_command_receiver = match config.mode {
@@ -95,8 +110,11 @@ impl Runner {
                 // TODO: support worker threads? Though it's likely not needed anytime soon.
                 tracing::info!("Creating GPU prover");
                 let app_bin_path = config.app_bin_path.clone();
+                let security = config.security;
+                let proof_output = config.proof_output_dir.clone().map(ProofOutput::new);
                 let gpu_prover = observability::spawn_blocking_on_current_hub(move || {
-                    Prover::new(app_bin_path.as_path(), None).context("failed to create prover")
+                    Prover::new(app_bin_path.as_path(), None, security)
+                        .context("failed to create prover")
                 })
                 .await
                 .context("prover creation task panicked")??;
@@ -106,6 +124,8 @@ impl Runner {
                     gpu_prover,
                     block_stream_receiver,
                     config.on_failure,
+                    proof_output,
+                    security,
                 );
                 join_set.spawn(observability::bind_task("gpu_prove", task.run()));
                 command_receiver
